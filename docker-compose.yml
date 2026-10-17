@@ -1,0 +1,21 @@
+services:
+  orange-meet:
+    build: .
+    image: orange-meet:latest
+    container_name: orange-meet
+    restart: "no"
+    ports:
+      - "4001:4000"
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+    volumes:
+      - ./server.js:/app/server.js
+      - ./public:/app/public
+    command: ["node_modules/.bin/nodemon", "server.js"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
