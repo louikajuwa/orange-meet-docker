@@ -12,4 +12,5 @@ npm-debug.log
 Dockerfile
 docker-compose.yml
 .dockerignore
-README.md
+*.md
+.env.example

@@ -1,20 +1,27 @@
 services:
   orange-meet:
-    build: .
-    image: orange-meet:latest
+    build:
+      context: .
+      target: dev
+    image: orange-meet:dev
     container_name: orange-meet
-    restart: "no"
+    restart: unless-stopped
     ports:
       - "4001:4000"
+      - "127.0.0.1:35729:35729" # livereload (dev only)
+    env_file:
+      - path: .env
+        required: false
     environment:
       - NODE_ENV=development
       - PORT=4000
     volumes:
-      - ./server.js:/app/server.js
-      - ./public:/app/public
-    command: ["node_modules/.bin/nodemon", "server.js"]
+      - ./server.js:/app/server.js:ro
+      - ./lib:/app/lib:ro
+      - ./public:/app/public:ro
+      - ./test:/app/test:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3

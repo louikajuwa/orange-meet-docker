@@ -13,9 +13,32 @@ $(document).ready(function(){
   function loadSession(){try{const r=sessionStorage.getItem("om_session");return r?JSON.parse(r):null}catch(e){return null}}
   function clearSession(){try{sessionStorage.removeItem("om_session")}catch(e){}sessionToken=null}
 
-  $("#hamburgerBtn").click(()=>$("#sidebar").addClass("open"));
-  $("#sidebarClose").click(()=>$("#sidebar").removeClass("open"));
-  function closeSidebar(){$("#sidebar").removeClass("open")}
+  // ---- HELPERS ----
+  const ROOM_RE=/^[\p{L}\p{N} _.\-]+$/u,ROOM_MAX=40,JOIN_REQUEST_TTL_MS=60000;
+  function escapeHtml(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+  // Mirrors server's normalizeRoomName: returns normalized name or null
+  function normalizeRoom(v){const n=String(v||"").trim().replace(/\s+/g,(" "));return(!n||n.length>ROOM_MAX||!ROOM_RE.test(n))?null:n}
+  let lastFocus=null;
+  function openModal(sel,focusSel){lastFocus=document.activeElement;$(sel).addClass("active");setTimeout(()=>$(focusSel).first().focus(),50)}
+  function closeModal(sel){const $m=$(sel);if(!$m.hasClass("active"))return;$m.removeClass("active");if(lastFocus&&document.contains(lastFocus)&&!$(sel).find(lastFocus).length)try{lastFocus.focus()}catch(e){}lastFocus=null}
+  $(document).on("keydown",e=>{
+    if(e.key==="Escape"){
+      const $m=$(".modal-overlay.active").last();
+      if($m.length){e.preventDefault();$m.find(".modal-cancel").first().click();return}
+      if($("#sidebar").hasClass("open"))closeSidebar();
+    }else if(e.key==="Tab"){
+      const $m=$(".modal-overlay.active,.kicked-overlay.active").last();if(!$m.length)return;
+      const f=$m.find("input,button").filter(":visible:not(:disabled)");if(!f.length)return;
+      const first=f[0],last=f[f.length-1];
+      if(!$m[0].contains(document.activeElement)){e.preventDefault();first.focus()}
+      else if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+      else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+    }
+  });
+
+  $("#hamburgerBtn").click(()=>{$("#sidebar").addClass("open");$("#hamburgerBtn").attr("aria-expanded","true");setTimeout(()=>$("#sidebarClose").focus(),50)});
+  $("#sidebarClose").click(()=>{closeSidebar();$("#hamburgerBtn").focus()});
+  function closeSidebar(){$("#sidebar").removeClass("open");$("#hamburgerBtn").attr("aria-expanded","false")}
 
   // ---- VIEWS ----
   function showView(v){
@@ -73,12 +96,21 @@ $(document).ready(function(){
   }
 
   // ---- RECONNECT ----
-  socket.on("disconnect",()=>{if(roomName)$("#reconnectBanner").addClass("active")});
+  let lastRooms=[],connFailed=false;
+  function updateConn(){
+    const up=socket.connected;
+    $("#createBtn").prop("disabled",!up);
+    renderRooms();
+  }
+  socket.on("disconnect",()=>{connFailed=true;if(roomName)$("#reconnectBanner").addClass("active");updateConn()});
+  socket.on("connect_error",()=>{connFailed=true;updateConn()});
   socket.on("connect",()=>{
+    connFailed=false;
     $("#reconnectBanner").removeClass("active");
+    updateConn();
     socket.emit("list-rooms");
     const saved=loadSession();
-    if(saved&&saved.token&&saved.room&&!roomName){
+    if(saved&&saved.token&&saved.room&&(!roomName||saved.room===roomName)){
       roomName=saved.room;
       startLocalStream().then(()=>socket.emit("reconnect-session",{token:saved.token,room:saved.room}));
     }else if(roomName){
@@ -86,7 +118,7 @@ $(document).ready(function(){
     }else{checkUrlRoom()}
   });
   socket.on("reconnect-ok",({room,isOwner:o})=>{roomName=room;isOwner=o;showView("call");showInfoToast("Reconnected","Back in \""+room+"\"")});
-  socket.on("reconnect-failed",()=>{clearSession();roomName=null;isOwner=false;showView("lobby")});
+  socket.on("reconnect-failed",()=>{clearSession();cleanupAll();showView("lobby");showInfoToast("Session expired","You were disconnected for too long and your spot in the room was released. Please rejoin.");socket.emit("list-rooms")});
   socket.on("session-token",({token})=>{sessionToken=token;saveSession()});
 
   // ---- SHARE LINK ----
@@ -99,32 +131,43 @@ $(document).ready(function(){
   });
   function checkUrlRoom(){
     const p=new URLSearchParams(location.search);const r=p.get("room");
-    if(r){history.replaceState({},"",location.pathname);joinRoom(r)}
+    if(r){history.replaceState({},"",location.pathname);const n=normalizeRoom(r);if(n)joinRoom(n);else showErrorToast("Invalid room link","That room name isn't valid.")}
   }
 
   // ---- CREATE ROOM ----
-  $("#createBtn").click(()=>{const r=$("#roomInput").val().trim();if(!r)return;pendingRoomName=r;$("#passwordInput").val("");$("#passwordError").hide();$("#passwordModal").addClass("active");setTimeout(()=>$("#passwordInput").focus(),100)});
-  $("#roomInput").keydown(e=>{if(e.key==="Enter")$("#createBtn").click()});
-  $("#passwordCancel").click(()=>{$("#passwordModal").removeClass("active");pendingRoomName=null});
-  $("#passwordConfirm").click(()=>{const pw=$("#passwordInput").val();if(!pw){$("#passwordError").text("Password required.").show();return}socket.emit("create-room",{room:pendingRoomName,password:pw})});
+  function setCreateBusy(b){$("#passwordConfirm").prop("disabled",b).text(b?"Creating…":"Create")}
+  function closePasswordModal(){setCreateBusy(false);closeModal("#passwordModal");pendingRoomName=null}
+  $("#createBtn").click(()=>{
+    if(!socket.connected)return;
+    const raw=$("#roomInput").val();if(!raw.trim())return;
+    const r=normalizeRoom(raw);
+    if(!r){$("#roomError").text(`Room name must be 1–${ROOM_MAX} letters, numbers, spaces, . _ or -.`).show();$("#roomInput").attr("aria-invalid","true").focus();return}
+    $("#roomError").hide().text("");$("#roomInput").removeAttr("aria-invalid");
+    pendingRoomName=r;$("#passwordInput").val("");$("#passwordError").hide();setCreateBusy(false);openModal("#passwordModal","#passwordInput");
+  });
+  $("#roomInput").keydown(e=>{if(e.key==="Enter")$("#createBtn").click()}).on("input",()=>{$("#roomError").hide()});
+  $("#passwordCancel").click(closePasswordModal);
+  $("#passwordConfirm").click(()=>{if($("#passwordConfirm").prop("disabled"))return;const pw=$("#passwordInput").val();if(!pw){$("#passwordError").text("Password required.").show();return}$("#passwordError").hide();setCreateBusy(true);socket.emit("create-room",{room:pendingRoomName,password:pw})});
   $("#passwordInput").keydown(e=>{if(e.key==="Enter")$("#passwordConfirm").click()});
-  socket.on("create-error",m=>$("#passwordError").text(m).show());
-  socket.on("auto-join",r=>{$("#passwordModal").removeClass("active");$("#roomInput").val("");pendingRoomName=null;isOwner=true;joinRoom(r)});
+  socket.on("create-error",m=>{setCreateBusy(false);$("#passwordError").text(m).show();$("#passwordInput").focus()});
+  socket.on("auto-join",r=>{closePasswordModal();$("#roomInput").val("");isOwner=true;joinRoom(r)});
 
   // ---- JOIN ----
   function joinRoom(r){if(roomName)return;roomName=r;closeSidebar();startLocalStream().then(()=>socket.emit("join",roomName))}
   socket.on("waiting-approval",()=>showView("waiting"));
   socket.on("join-rejected",()=>{cleanupAll();showView("lobby");showInfoToast("Denied","The host declined your request.")});
+  socket.on("join-expired",()=>{cleanupAll();showView("lobby");showInfoToast("Request expired","The host didn't respond in time. You can try joining again.");socket.emit("list-rooms")});
   socket.on("room-error",m=>{cleanupAll();showView("lobby");showInfoToast("Error",m)});
   $("#cancelJoinBtn").click(()=>{if(roomName)socket.emit("cancel-join",roomName);cleanupAll();showView("lobby")});
 
   // ---- JOIN REQUESTS ----
   socket.on("join-request",({room,userId})=>{
-    const s=userId.slice(0,6);
-    const t=$(`<div class="toast"><div class="toast-title">Join Request</div><div class="toast-sub">User ${s}… wants to join "${room}"</div><div class="toast-actions"><button class="toast-accept">Accept</button><button class="toast-reject">Deny</button></div></div>`);
+    const s=String(userId).slice(0,6);
+    const t=$('<div class="toast"><div class="toast-title">Join Request</div><div class="toast-sub"></div><div class="toast-actions"><button class="toast-accept">Accept</button><button class="toast-reject">Deny</button></div></div>');
+    t.find(".toast-sub").text(`User ${s}… wants to join "${room}"`);
     t.find(".toast-accept").click(()=>{socket.emit("accept-user",{room,userId});t.remove()});
     t.find(".toast-reject").click(()=>{socket.emit("reject-user",{room,userId});t.remove()});
-    $("#toastContainer").append(t);setTimeout(()=>t.remove(),30000);
+    $("#toastContainer").append(t);setTimeout(()=>t.remove(),JOIN_REQUEST_TTL_MS);
   });
 
   // ---- MEMBERS / KICK ----
@@ -134,16 +177,16 @@ $(document).ready(function(){
     currentMembers.forEach(m=>{if(m.id!==socket.id){
       const w=$("#video-"+m.id).closest(".video-wrap");
       if(w.length&&!w.find(".video-kick-btn").length){
-        const b=$('<button class="video-kick-btn">Kick</button>');
-        b.click(()=>socket.emit("kick-user",{room:roomName,userId:m.id}));w.append(b);
+        const b=$('<button class="video-kick-btn" aria-label="Remove participant from the room">Kick</button>');
+        b.click(()=>{if(confirm("Remove this participant from the room?"))socket.emit("kick-user",{room:roomName,userId:m.id})});w.append(b);
       }
     }});
   }
-  socket.on("kicked",()=>{clearSession();cleanupAll();showView("lobby");$("#kickedOverlay").addClass("active")});
-  $("#kickedOkBtn").click(()=>{$("#kickedOverlay").removeClass("active");socket.emit("list-rooms")});
+  socket.on("kicked",()=>{clearSession();cleanupAll();showView("lobby");lastFocus=document.activeElement;$("#kickedOverlay").addClass("active");setTimeout(()=>$("#kickedOkBtn").focus(),50)});
+  $("#kickedOkBtn").click(()=>{$("#kickedOverlay").removeClass("active");socket.emit("list-rooms");if(lastFocus&&document.contains(lastFocus))try{lastFocus.focus()}catch(e){}lastFocus=null});
 
   // ---- LEAVE ----
-  $("#leaveBtn").click(()=>{if(!roomName)return;socket.emit("leave",roomName);clearSession();cleanupAll();showView("lobby");socket.emit("list-rooms")});
+  $("#leaveBtn").click(()=>{if(!roomName)return;if(!confirm("Leave this call?"))return;socket.emit("leave");clearSession();cleanupAll();showView("lobby");socket.emit("list-rooms")});
 
   // ---- MUTE / CAMERA ----
   // The previous implementation used `track.enabled` which was unreliable —
@@ -160,6 +203,7 @@ $(document).ready(function(){
     let s = pc.getSenders().find(x => x.track && x.track.kind === kind);
     if(s) return s;
     for(const tx of pc.getTransceivers()){
+      if(tx.direction === "recvonly" || tx.direction === "inactive") continue; // can't send on it; addTrack will reuse + renegotiate
       if(tx.receiver && tx.receiver.track && tx.receiver.track.kind === kind){
         return tx.sender;
       }
@@ -175,9 +219,13 @@ $(document).ready(function(){
     // Belt-and-suspenders: explicit display so it works regardless of CSS
     // specificity. Solves the "red slash doesn't appear when alone" bug.
     $("#localWrap .video-mute-icon").css("display", off ? "flex" : "none");
+    const l = off ? "Unmute" : "Mute";
+    $("#muteBtn").attr({"aria-label":l,"aria-pressed":off?"true":"false"}).find(".ctrl-tooltip").text(l);
   }
   function applyCamUI(off){
     videoHidden = off;
+    const l = off ? "Turn camera on" : "Turn camera off";
+    $("#videoBtn").attr({"aria-label":l,"aria-pressed":off?"true":"false"}).find(".ctrl-tooltip").text(l);
     $("#videoBtn").toggleClass("active-off", off);
     $("#camOn").toggle(!off); $("#camOff").toggle(off);
     $("#localWrap").toggleClass("is-cam-off", off);
@@ -218,17 +266,27 @@ $(document).ready(function(){
         if(!isAudio) localVideo.srcObject = localStream;
 
         // Wire to existing senders. Most cases hit the first branch.
-        await Promise.all(Object.values(pcs).map(async pc => {
+        const renegotiate = [];
+        await Promise.all(Object.entries(pcs).map(async ([rid, pc]) => {
           const s = findSenderByKind(pc, kind);
           if(s){
             await s.replaceTrack(newTrack).catch(e => console.warn("replaceTrack "+kind+":", e));
           } else {
-            // No transceiver for this kind — add one (rare; would need
-            // renegotiation). makeOffer-on-next-event would handle it,
-            // but for now log and continue.
-            try { pc.addTrack(newTrack, localStream); } catch(e){ console.warn("addTrack "+kind+":", e); }
+            // No sender for this kind (e.g. joined audio-only) — add the track
+            // and renegotiate so the peer actually receives it.
+            try { pc.addTrack(newTrack, localStream); renegotiate.push(rid); } catch(e){ console.warn("addTrack "+kind+":", e); }
           }
         }));
+        for(const rid of renegotiate){
+          const pc = pcs[rid];
+          if(!pc) continue;
+          try{
+            if(pc.signalingState !== "stable"){ console.warn("renegotiate skipped, signalingState="+pc.signalingState); continue; }
+            const o = await pc.createOffer();
+            await pc.setLocalDescription(o);
+            socket.emit("offer", {to: rid, sdp: o});
+          }catch(e){ console.warn("renegotiate "+rid+":", e); }
+        }
       }
 
       socket.emit(isAudio ? "toggle-audio" : "toggle-video",
@@ -236,7 +294,7 @@ $(document).ready(function(){
       nudgeConnectionsAfterToggle();
     } catch(err){
       console.error(kind+" toggle error:", err);
-      showInfoToast("Device error", err.message || ("Couldn't toggle "+kind));
+      showErrorToast("Device error", err.message || ("Couldn't toggle "+kind));
       // Revert UI on failure
       if(isAudio) applyMuteUI(wasOff); else applyCamUI(wasOff);
     } finally {
@@ -583,27 +641,38 @@ $(document).ready(function(){
       showErrorToast("Already in use","Close screen sharing first to start a YouTube watch party.");
       return;
     }
-    $("#ytModal").addClass("active");$("#ytUrlInput").val("").focus();$("#ytError").hide().text("");
+    setYtBusy(false);$("#ytUrlInput").val("");$("#ytError").hide().text("");openModal("#ytModal","#ytUrlInput");
   });
-  $("#ytModalCancel").click(()=>$("#ytModal").removeClass("active"));
+  let ytBusyTimer = null;
+  function setYtBusy(b){
+    if(ytBusyTimer){ clearTimeout(ytBusyTimer); ytBusyTimer = null; }
+    $("#ytModalShare").prop("disabled", b).text(b ? "Sharing…" : "Share");
+    // If the server never answers (e.g. rejected silently), don't leave the button stuck.
+    if(b) ytBusyTimer = setTimeout(()=>{ setYtBusy(false); $("#ytError").text("No response from server. Try again.").show(); }, 8000);
+  }
+  function closeYtModal(){ setYtBusy(false); closeModal("#ytModal"); }
+  $("#ytModalCancel").click(closeYtModal);
   $("#ytModalShare").click(()=>{
+    if($("#ytModalShare").prop("disabled")) return;
     const u = $("#ytUrlInput").val().trim(); if(!u) return;
     const v = extractYtId(u); if(!v){ $("#ytError").text("Enter a valid YouTube URL.").show(); return }
     // Re-check at submit time — guards against a peer starting a share between
     // modal-open and modal-submit.
     if(isScreenShareActive()){
-      $("#ytModal").removeClass("active");
+      closeYtModal();
       showErrorToast("Already in use","Close screen sharing first to start a YouTube watch party.");
       return;
     }
+    $("#ytError").hide().text("");
+    setYtBusy(true);
     socket.emit("share-youtube",{room:roomName, videoId:v});
-    $("#ytModal").removeClass("active");
   });
   $("#ytUrlInput").keydown(e=>{ if(e.key==="Enter") $("#ytModalShare").click() });
 
   // Incoming YouTube share. Independent of screen share: if a share is locally
   // in progress we ignore the event and surface a toast rather than stomping.
   socket.on("youtube-shared", ({videoId, currentTime, action})=>{
+    if($("#ytModalShare").prop("disabled")) closeYtModal();
     if(isScreenShareActive()){
       showInfoToast("YouTube ignored","A screen share is active in this room.");
       return;
@@ -618,7 +687,7 @@ $(document).ready(function(){
     $("#youtubeArea").removeClass("active");
     $(".main").removeClass("cameras-shrunk");
   }
-  $("#youtubeCloseBtn").click(()=> socket.emit("close-youtube", roomName));
+  $("#youtubeCloseBtn").click(()=>{ if(confirm("Close the shared YouTube video for everyone in the room?")) socket.emit("close-youtube"); });
   socket.on("youtube-closed", ()=>{ closeYoutube(); updateVideoLayout(); });
 
   // Receive remote play/pause/seek
@@ -686,13 +755,14 @@ $(document).ready(function(){
   }
 
   function closeWatchPanel(broadcast){
+    const wasSharer = isScreenSharer; // only the sharer may emit ss-stop (server ignores viewers)
     stopScreenShare(false); // stop stream if active, don't broadcast ss-stop twice
     watchIsOpen = false;
     $("#watchArea").removeClass("active");
     $("#watchBtn").removeClass("active-on").addClass("dark");
     $(".main").removeClass("cameras-shrunk");
     updateVideoLayout();
-    if(broadcast && roomName) socket.emit("ss-stop",{room:roomName});
+    if(broadcast && wasSharer && roomName) socket.emit("ss-stop");
   }
 
   // Close button in the header
@@ -747,7 +817,7 @@ $(document).ready(function(){
     screenStream.getVideoTracks()[0].onended = ()=> closeWatchPanel(true);
 
     // Notify other user and send them the offer
-    socket.emit("ss-start",{room:roomName});
+    socket.emit("ss-start");
     currentMembers.forEach(m=>{
       if(m.id !== socket.id) createScreenOffer(m.id);
     });
@@ -757,6 +827,7 @@ $(document).ready(function(){
   $("#watchStopInline").click(()=> closeWatchPanel(true));
 
   function stopScreenShare(broadcast){
+    const wasSharer = isScreenSharer;
     if(screenStream){
       screenStream.getTracks().forEach(t=>t.stop());
       screenStream = null;
@@ -765,25 +836,36 @@ $(document).ready(function(){
       screenPC.close();
       screenPC = null;
     }
+    ssPendingIce.length = 0;
     const vid = document.getElementById("screenVideo");
     if(vid){vid.srcObject = null;$(vid).removeClass("visible")}
     isScreenSharer = false;
     $("#watchStatus").removeClass("visible");
-    if(broadcast && roomName) socket.emit("ss-stop",{room:roomName});
+    if(broadcast && wasSharer && roomName) socket.emit("ss-stop");
   }
 
   // ---- Screen share WebRTC signaling ----
-  function createScreenOffer(remoteId){
+  const ssPendingIce = []; // ICE candidates that arrived before screenPC / its remote description
+  async function flushSsIce(){
+    const pc = screenPC;
+    while(pc && ssPendingIce.length){
+      const c = ssPendingIce.shift();
+      try{ await pc.addIceCandidate(new RTCIceCandidate(c)) }catch(err){ console.warn("ss-ice flush error:", err) }
+    }
+  }
+  async function createScreenOffer(remoteId){
     if(screenPC){screenPC.close();screenPC=null}
-    screenPC = new RTCPeerConnection(config);
-    screenStream.getTracks().forEach(t=> screenPC.addTrack(t, screenStream));
-    screenPC.onicecandidate = e=>{
+    ssPendingIce.length = 0;
+    const pc = screenPC = new RTCPeerConnection(config);
+    screenStream.getTracks().forEach(t=> pc.addTrack(t, screenStream));
+    pc.onicecandidate = e=>{
       if(e.candidate) socket.emit("ss-ice",{to:remoteId,candidate:e.candidate});
     };
-    screenPC.createOffer().then(o=>{
-      screenPC.setLocalDescription(o);
+    try{
+      const o = await pc.createOffer();
+      await pc.setLocalDescription(o);
       socket.emit("ss-offer",{to:remoteId,sdp:o});
-    }).catch(err=> console.error("Screen offer error:", err));
+    }catch(err){ console.error("Screen offer error:", err) }
   }
 
   // Receiving a screen share offer (I am the VIEWER). Independent of YouTube:
@@ -791,6 +873,7 @@ $(document).ready(function(){
   // closing the player. The sharer should have been blocked client-side, but
   // this is belt-and-suspenders against races.
   socket.on("ss-offer",async({from,sdp})=>{
+    try{
     if(isYouTubeActive()){
       showInfoToast("Share ignored","YouTube is active in this room.");
       return;
@@ -815,28 +898,40 @@ $(document).ready(function(){
     screenPC.onicecandidate = e=>{
       if(e.candidate) socket.emit("ss-ice",{to:from,candidate:e.candidate});
     };
+    const pc = screenPC;
     try{
-      await screenPC.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await screenPC.createAnswer();
-      await screenPC.setLocalDescription(answer);
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      await flushSsIce();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
       socket.emit("ss-answer",{to:from,sdp:answer});
     }catch(err){
       console.error("Screen answer error:", err);
     }
+    }catch(err){ console.error("ss-offer error:", err) }
   });
 
   socket.on("ss-answer",async({sdp})=>{
-    if(screenPC){
-      try{await screenPC.setRemoteDescription(new RTCSessionDescription(sdp))}
+    const pc = screenPC;
+    if(pc){
+      try{await pc.setRemoteDescription(new RTCSessionDescription(sdp)); await flushSsIce()}
       catch(err){console.error("ss-answer error:",err)}
     }
   });
 
   socket.on("ss-ice",async({candidate})=>{
-    if(screenPC && candidate){
-      try{await screenPC.addIceCandidate(new RTCIceCandidate(candidate))}
-      catch(err){console.error("ss-ice error:",err)}
-    }
+    if(!candidate) return;
+    try{
+      if(screenPC && screenPC.remoteDescription){ await screenPC.addIceCandidate(new RTCIceCandidate(candidate)) }
+      else ssPendingIce.push(candidate);
+    }catch(err){console.error("ss-ice error:",err)}
+  });
+
+  // Someone else is already sharing (server allows one sharer per room): reset our sharing UI.
+  socket.on("ss-error",m=>{
+    stopScreenShare(false);
+    if(watchIsOpen){ openWatchPanel(); $("#watchError").text(m||"Someone else is already sharing their screen.").show(); }
+    showErrorToast("Can't share screen", m||"Someone else is already sharing their screen.");
   });
 
   // Other user started sharing — show waiting state. Independent of YouTube:
@@ -855,6 +950,8 @@ $(document).ready(function(){
   // disconnect cleanup). Tear down the viewer regardless of panel state so the
   // frozen frame can't linger.
   socket.on("ss-stop",()=>{
+    if(isScreenSharer) return; // we are the sharer; our own stop is handled locally
+    ssPendingIce.length = 0;
     if(screenPC){screenPC.close();screenPC=null}
     const vid = document.getElementById("screenVideo");
     if(vid){vid.srcObject=null;$(vid).removeClass("visible")}
@@ -927,7 +1024,8 @@ $(document).ready(function(){
   // Build the status cluster (label + mute icon) and cam-off overlay markup
   // used by both local and remote tiles.
   function buildStatusCluster(name){
-    const initial = (name||"?")[0].toUpperCase();
+    const initial = escapeHtml((name||"?")[0].toUpperCase());
+    name = escapeHtml(name);
     return `
       <div class="video-cam-off-overlay">
         <div class="cam-off-avatar">${initial}</div>
@@ -935,8 +1033,8 @@ $(document).ready(function(){
       </div>
       <div class="video-status">
         <div class="video-label">${name}</div>
-        <div class="video-mute-icon" title="Muted">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        <div class="video-mute-icon" title="Muted" role="img" aria-label="Muted">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
         </div>
       </div>`;
   }
@@ -960,6 +1058,12 @@ $(document).ready(function(){
   }
 
   function createPeer(rid){
+    // Close any existing connection first so it can't leak or fire stale events
+    const prev = pcs[rid];
+    if(prev){
+      prev.onconnectionstatechange = prev.oniceconnectionstatechange = prev.onicecandidate = prev.ontrack = null;
+      try{ prev.close() }catch(e){}
+    }
     const pc = new RTCPeerConnection(config);
     pcs[rid] = pc;
     peerHealth[rid] = peerHealth[rid] || { iceRestartAttempts: 0, rebuildTimer: null, lastRestartAt: 0 };
@@ -1040,7 +1144,7 @@ $(document).ready(function(){
     h.lastRestartAt = now;
     h.iceRestartAttempts++;
     try {
-      console.log(`[reconnect] ICE restart for ${rid} (attempt ${h.iceRestartAttempts})`);
+      console.debug(`[reconnect] ICE restart for ${rid} (attempt ${h.iceRestartAttempts})`);
       const offer = await pc.createOffer({ iceRestart: true });
       await pc.setLocalDescription(offer);
       socket.emit("offer", { to: rid, sdp: offer });
@@ -1052,7 +1156,7 @@ $(document).ready(function(){
   }
 
   async function rebuildPeer(rid){
-    console.log(`[reconnect] Full rebuild for ${rid}`);
+    console.debug(`[reconnect] Full rebuild for ${rid}`);
     const old = pcs[rid];
     if(old){ try { old.close(); } catch(e){} }
     delete pcs[rid];
@@ -1080,36 +1184,92 @@ $(document).ready(function(){
 
   async function makeOffer(r){const pc=createPeer(r);const o=await pc.createOffer();await pc.setLocalDescription(o);socket.emit("offer",{to:r,sdp:o})}
   async function handleOffer(f,s){
-    // If we already have a peer for this id, this is likely an ICE-restart re-offer.
+    if(!localStream) return;
+    // Existing pc => re-offer (ICE restart / renegotiation after a track was added).
     let pc = pcs[f];
     if(!pc) pc = createPeer(f);
+    else if(pc.signalingState !== "stable"){
+      // Offer glare: both sides offered at once. Deterministic tie-break — the
+      // lower socket id is "polite" and yields (setRemoteDescription rolls back
+      // its own offer); the other side ignores the incoming offer.
+      if(!(socket.id < f)) return;
+    }
     await pc.setRemoteDescription(new RTCSessionDescription(s));
+    await flushIce(f, pc);
     const a = await pc.createAnswer();
     await pc.setLocalDescription(a);
     socket.emit("answer", {to: f, sdp: a});
   }
-  async function handleAnswer(f,s){const pc=pcs[f];if(pc)await pc.setRemoteDescription(new RTCSessionDescription(s))}
-  async function handleCandidate(f,c){const pc=pcs[f];if(pc&&c){try{await pc.addIceCandidate(new RTCIceCandidate(c))}catch(e){console.warn("addIceCandidate failed:",e)}}}
+  async function handleAnswer(f,s){
+    const pc=pcs[f];
+    if(!pc || pc.signalingState !== "have-local-offer") return;
+    await pc.setRemoteDescription(new RTCSessionDescription(s));
+    await flushIce(f, pc);
+  }
+  // ICE candidates can arrive before the remote description is set (or before the
+  // peer connection exists); buffer them and flush after setRemoteDescription.
+  const pendingIce = {}; // remoteId -> RTCIceCandidateInit[]
+  async function flushIce(id, pc){
+    const q = pendingIce[id]; if(!q) return;
+    delete pendingIce[id];
+    for(const c of q){ try{ await pc.addIceCandidate(new RTCIceCandidate(c)) }catch(e){ console.warn("addIceCandidate (buffered) failed:",e) } }
+  }
+  async function handleCandidate(f,c){
+    if(!c) return;
+    const pc=pcs[f];
+    if(!pc || !pc.remoteDescription){ (pendingIce[f]=pendingIce[f]||[]).push(c); return }
+    try{await pc.addIceCandidate(new RTCIceCandidate(c))}catch(e){console.warn("addIceCandidate failed:",e)}
+  }
+  // Drop all per-peer state (timers, buffered ICE, VAD, pc) for a remote id
+  function dropPeer(id){
+    const pc = pcs[id];
+    if(pc){ pc.onconnectionstatechange = pc.oniceconnectionstatechange = pc.onicecandidate = pc.ontrack = null; try{pc.close()}catch(e){} delete pcs[id] }
+    const h = peerHealth[id];
+    if(h){ if(h.rebuildTimer) clearTimeout(h.rebuildTimer); delete peerHealth[id] }
+    delete pendingIce[id];
+    removeRemoteVideo(id);
+  }
   function cleanupAll(){
-    for(const id in pcs){pcs[id].close();removeRemoteVideo(id);delete pcs[id]}
-    for(const id in peerHealth){
-      if(peerHealth[id].rebuildTimer) clearTimeout(peerHealth[id].rebuildTimer);
-      delete peerHealth[id];
-    }
+    for(const id of Object.keys(pcs)) dropPeer(id);
+    for(const id of Object.keys(peerHealth)) dropPeer(id);
+    for(const id of Object.keys(pendingIce)) delete pendingIce[id];
     vadStopAll(); vadRemove("local");
     if(localStream){localStream.getTracks().forEach(t=>t.stop());localStream=null;localVideo.srcObject=null}
-    audioMuted=false;videoHidden=false;roomName=null;isOwner=false;
+    roomName=null;isOwner=false;currentMembers=[];
+    applyMuteUI(false);applyCamUI(false);
     $("#muteBtn").removeClass("active-off");$("#videoBtn").removeClass("active-off");
     $("#micOn").show();$("#micOff").hide();$("#camOn").show();$("#camOff").hide();
     $("#localWrap").removeClass("is-muted is-cam-off");
     $("#localWrap .video-mute-icon").css("display", "");
     $("#reconnectBanner").removeClass("active");
     closeYoutube();cleanupScreenShare();
+    updateConn();
   }
 
   // ---- SOCKET EVENTS ----
-  socket.on("room-list",rooms=>{$("#activeList").empty();if(!rooms.length)$("#activeList").append('<div class="room-empty">No rooms — create one!</div>');else rooms.forEach(r=>{const b=$(`<button class="room-item" title="${r.name}"><span class="room-dot"></span><span class="room-name">${r.name}</span><span class="room-count">${r.count}/2</span></button>`);b.click(()=>joinRoom(r.name));$("#activeList").append(b)})});
-  socket.on("users",async users=>{showView("call");$("#topbarBadge").show().text((users.length+1)+" in call");for(const id of users)await makeOffer(id)});
+  socket.on("room-list",rooms=>{lastRooms=Array.isArray(rooms)?rooms:[];renderRooms()});
+  function renderRooms(){
+    const $l=$("#activeList").empty();
+    if(!socket.connected&&!roomName){
+      const $s=$('<div class="room-status" role="status"></div>');
+      if(connFailed)$s.addClass("error").text("Server unreachable — retrying…");
+      else $s.text("Connecting…");
+      $s.prepend('<div class="reconnect-spinner" aria-hidden="true"></div>');
+      $l.append($s);return;
+    }
+    if(!lastRooms.length){$l.append('<div class="room-empty">No rooms — create one!</div>');return}
+    lastRooms.forEach(r=>{
+      const max=r.max||2;
+      const b=$('<button class="room-item"><span class="room-dot"></span><span class="room-name"></span><span class="room-count"></span></button>');
+      b.attr({title:r.name,"aria-label":`Join ${r.name}, ${r.count} of ${max} participants`});
+      b.find(".room-name").text(r.name);b.find(".room-count").text(`${r.count}/${max}`);
+      b.click(()=>joinRoom(r.name));$l.append(b);
+    });
+  }
+  socket.on("users",async users=>{
+    showView("call");$("#topbarBadge").show().text((users.length+1)+" in call");
+    for(const id of users){try{await makeOffer(id)}catch(err){console.error("makeOffer failed for",id,err)}}
+  });
   socket.on("user-joined",id=>{
     updateKick();
     onUserJoinedScreenShare(id);
@@ -1121,10 +1281,10 @@ $(document).ready(function(){
     }
   });
   socket.on("room-count",c=>{if(roomName)$("#topbarBadge").show().text(c+" in call")});
-  socket.on("user-left",id=>{removeRemoteVideo(id);if(pcs[id]){pcs[id].close();delete pcs[id]}});
-  socket.on("offer",async({from,sdp})=>await handleOffer(from,sdp));
-  socket.on("answer",async({from,sdp})=>await handleAnswer(from,sdp));
-  socket.on("ice-candidate",async({from,candidate})=>handleCandidate(from,candidate));
+  socket.on("user-left",id=>dropPeer(id));
+  socket.on("offer",async({from,sdp})=>{try{await handleOffer(from,sdp)}catch(err){console.error("offer error:",err)}});
+  socket.on("answer",async({from,sdp})=>{try{await handleAnswer(from,sdp)}catch(err){console.error("answer error:",err)}});
+  socket.on("ice-candidate",async({from,candidate})=>{try{await handleCandidate(from,candidate)}catch(err){console.error("ice error:",err)}});
   socket.on("user-video-toggle",({id,hidden})=>{
     const $w = $("#video-"+id).closest(".video-wrap");
     $w.toggleClass("is-cam-off", !!hidden);
@@ -1133,11 +1293,14 @@ $(document).ready(function(){
     const $w = $("#video-"+id).closest(".video-wrap");
     $w.toggleClass("is-muted", !!muted);
   });
-  socket.on("room-full",r=>{cleanupAll();showView("lobby");showInfoToast("Room full",`"${r}" has 2 participants.`);socket.emit("list-rooms")});
+  socket.on("room-full",r=>{cleanupAll();showView("lobby");const m=(lastRooms.find(x=>x.name===r)||{}).max;showInfoToast("Room full",m?`"${r}" is full (${m} participants max).`:`"${r}" is full.`);socket.emit("list-rooms")});
   socket.on("update-rooms",()=>socket.emit("list-rooms"));
 
-  function showInfoToast(t,s){const el=$(`<div class="toast toast-info"><div class="toast-title">${t}</div><div class="toast-sub" style="margin-bottom:0">${s}</div></div>`);$("#toastContainer").append(el);setTimeout(()=>el.remove(),4000)}
-  function showErrorToast(t,s){const el=$(`<div class="toast toast-error"><div class="toast-title">${t}</div><div class="toast-sub" style="margin-bottom:0">${s}</div></div>`);$("#toastContainer").append(el);setTimeout(()=>el.remove(),5000)}
+  // Toasts are built with .text() so any caller (including server/user strings) is safe
+  function showToast(cls,t,s,ms){const el=$(`<div class="toast ${cls}"><div class="toast-title"></div><div class="toast-sub" style="margin-bottom:0"></div></div>`);el.find(".toast-title").text(t);el.find(".toast-sub").text(s);$("#toastContainer").append(el);setTimeout(()=>el.remove(),ms)}
+  function showInfoToast(t,s){showToast("toast-info",t,s,s&&String(s).length>80?8000:4000)}
+  function showErrorToast(t,s){showToast("toast-error",t,s,5000)}
 
+  updateConn();
   showView("lobby");
 });

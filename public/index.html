@@ -2,40 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Orange Meet</title>
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/yt-ready.js"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&family=Instrument+Serif&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar" id="sidebar">
-      <button class="sidebar-close" id="sidebarClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <aside class="sidebar" id="sidebar" aria-label="Rooms">
+      <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
       <div class="sidebar-header"><h1><span class="dot"></span> Orange Meet</h1></div>
       <div class="sidebar-create" id="createSection">
-        <input id="roomInput" placeholder="New room name…" />
+        <input id="roomInput" placeholder="New room name…" aria-label="New room name" maxlength="40" autocomplete="off" />
+        <div class="modal-error" id="roomError" role="alert"></div>
         <button id="createBtn">Create Room</button>
       </div>
-      <div class="room-list-title">Active Rooms</div>
-      <div class="room-list" id="activeList"></div>
+      <div class="room-list-title" id="roomListTitle">Active Rooms</div>
+      <div class="room-list" id="activeList" aria-labelledby="roomListTitle"></div>
     </aside>
 
-    <div class="main">
-      <div class="topbar">
-        <button class="hamburger" id="hamburgerBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
+    <main class="main">
+      <header class="topbar">
+        <button class="hamburger" id="hamburgerBtn" aria-label="Open rooms menu" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
         <div class="topbar-title" id="topbarTitle">Orange Meet</div>
         <button class="topbar-share" id="shareLinkBtn" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
           Share
         </button>
         <div class="topbar-badge" id="topbarBadge" style="display:none"></div>
-      </div>
+      </header>
 
-      <div class="reconnect-banner" id="reconnectBanner"><div class="reconnect-spinner"></div><span>Reconnecting…</span></div>
+      <div class="reconnect-banner" id="reconnectBanner" role="status" aria-live="polite"><div class="reconnect-spinner" aria-hidden="true"></div><span>Reconnecting…</span></div>
 
       <!-- Content area wraps everything between topbar and controls -->
       <div class="content-area">
@@ -57,7 +58,7 @@
         </div>
 
         <div class="video-area" id="videoArea">
-          <div class="video-wrap rounded-lg shadow-md" id="localWrap">
+          <div class="video-wrap" id="localWrap">
             <video id="localVideo" autoplay muted playsinline></video>
             <div class="video-cam-off-overlay">
               <div class="cam-off-avatar" id="localAvatar">Y</div>
@@ -65,8 +66,8 @@
             </div>
             <div class="video-status">
               <div class="video-label">You</div>
-              <div class="video-mute-icon" title="Muted">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+              <div class="video-mute-icon" title="Muted" role="img" aria-label="Muted">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
               </div>
             </div>
           </div>
@@ -83,7 +84,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                 <span class="media-focus-label">Focus</span>
               </button>
-              <button class="watch-close-x" id="youtubeCloseBtn" title="Close">&times;</button>
+              <button class="watch-close-x" id="youtubeCloseBtn" title="Close YouTube for everyone" aria-label="Close YouTube for everyone"><span aria-hidden="true">&times;</span></button>
             </div>
           </div>
           <div class="youtube-container">
@@ -103,7 +104,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                 <span class="media-focus-label">Focus</span>
               </button>
-              <button class="watch-close-x" id="watchCloseBtn" title="Close">&times;</button>
+              <button class="watch-close-x" id="watchCloseBtn" title="Close screen share panel" aria-label="Close screen share panel"><span aria-hidden="true">&times;</span></button>
             </div>
           </div>
           <div class="watch-body">
@@ -121,7 +122,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
                 Share Screen
               </button>
-              <div class="watch-error" id="watchError"></div>
+              <div class="watch-error" id="watchError" role="alert"></div>
             </div>
 
             <!-- Viewer waiting message (shown to the person receiving) -->
@@ -144,38 +145,28 @@
       </div><!-- end content-area -->
 
       <!-- CONTROLS — on mobile these become position:fixed at bottom -->
-      <div class="controls" id="controlBar">
-        <button class="ctrl-btn dark" id="muteBtn"><span class="ctrl-tooltip">Mute</span>
-          <svg id="micOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          <svg id="micOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.13 1.49-.35 2.17"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <div class="controls" id="controlBar" role="toolbar" aria-label="Call controls">
+        <button class="ctrl-btn dark" id="muteBtn" aria-label="Mute" aria-pressed="false"><span class="ctrl-tooltip" aria-hidden="true">Mute</span>
+          <svg id="micOn" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          <svg id="micOff" aria-hidden="true" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V4a3 3 0 00-5.94-.6"/><path d="M17 16.95A7 7 0 015 12v-2m14 0v2c0 .76-.13 1.49-.35 2.17"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
         </button>
-        <button class="ctrl-btn dark" id="videoBtn"><span class="ctrl-tooltip">Camera</span>
-          <svg id="camOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          <svg id="camOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34"/><path d="M23 7l-7 5 7 5V7z"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        <button class="ctrl-btn dark" id="videoBtn" aria-label="Turn camera off" aria-pressed="false"><span class="ctrl-tooltip" aria-hidden="true">Turn camera off</span>
+          <svg id="camOn" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          <svg id="camOff" aria-hidden="true" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 16v1a2 2 0 01-2 2H3a2 2 0 01-2-2V7a2 2 0 012-2h2m5.66 0H14a2 2 0 012 2v3.34"/><path d="M23 7l-7 5 7 5V7z"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
         </button>
-        <button class="ctrl-btn dark" id="ytShareBtn"><span class="ctrl-tooltip">YouTube</span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg></button>
-        <button class="ctrl-btn dark" id="watchBtn"><span class="ctrl-tooltip">Watch Together</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></button>
-        <button class="ctrl-btn danger" id="leaveBtn"><span class="ctrl-tooltip">Leave</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
+        <button class="ctrl-btn dark" id="ytShareBtn" aria-label="Share a YouTube video"><span class="ctrl-tooltip" aria-hidden="true">YouTube</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0C.488 3.45.029 5.804 0 12c.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0C23.512 20.55 23.971 18.196 24 12c-.029-6.185-.484-8.549-4.385-8.816zM9 16V8l8 4-8 4z"/></svg></button>
+        <button class="ctrl-btn dark" id="watchBtn" aria-label="Watch Together (share screen)"><span class="ctrl-tooltip" aria-hidden="true">Watch Together</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></button>
+        <button class="ctrl-btn danger" id="leaveBtn" aria-label="Leave call"><span class="ctrl-tooltip" aria-hidden="true">Leave</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></button>
       </div>
-    </div>
+    </main>
   </div>
 
-  <div class="toast-container" id="toastContainer"></div>
-  <div class="modal-overlay" id="passwordModal"><div class="modal"><h3>Create Room</h3><p>Enter the password to create a new room.</p><input id="passwordInput" type="password" placeholder="Password…"/><div class="modal-error" id="passwordError"></div><div class="modal-actions"><button class="modal-cancel" id="passwordCancel">Cancel</button><button class="modal-confirm" id="passwordConfirm">Create</button></div></div></div>
-  <div class="modal-overlay" id="ytModal"><div class="modal"><h3>Share YouTube Video</h3><p>Paste a YouTube link — both participants see it.</p><input id="ytUrlInput" placeholder="https://youtube.com/watch?v=..."/><div class="modal-error" id="ytError"></div><div class="modal-actions"><button class="modal-cancel" id="ytModalCancel">Cancel</button><button class="modal-confirm" id="ytModalShare">Share</button></div></div></div>
-  <div class="kicked-overlay" id="kickedOverlay"><div><h2>You've been removed</h2><p>The host removed you from the room.</p><button id="kickedOkBtn">Back to Lobby</button></div></div>
-  <div class="copy-toast" id="copyToast">Link copied!</div>
+  <div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
+  <div class="modal-overlay" id="passwordModal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="passwordTitle"><h3 id="passwordTitle">Create Room</h3><p>Enter the password to create a new room.</p><input id="passwordInput" type="password" placeholder="Password…" aria-label="Room creation password" autocomplete="off"/><div class="modal-error" id="passwordError" role="alert"></div><div class="modal-actions"><button class="modal-cancel" id="passwordCancel">Cancel</button><button class="modal-confirm" id="passwordConfirm">Create</button></div></div></div>
+  <div class="modal-overlay" id="ytModal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="ytTitle"><h3 id="ytTitle">Share YouTube Video</h3><p>Paste a YouTube link — both participants see it.</p><input id="ytUrlInput" placeholder="https://youtube.com/watch?v=..." aria-label="YouTube video link" autocomplete="off"/><div class="modal-error" id="ytError" role="alert"></div><div class="modal-actions"><button class="modal-cancel" id="ytModalCancel">Cancel</button><button class="modal-confirm" id="ytModalShare">Share</button></div></div></div>
+  <div class="kicked-overlay" id="kickedOverlay" role="alertdialog" aria-modal="true" aria-labelledby="kickedTitle"><div><h2 id="kickedTitle">You've been removed</h2><p>The host removed you from the room.</p><button id="kickedOkBtn">Back to Lobby</button></div></div>
+  <div class="copy-toast" id="copyToast" role="status" aria-live="polite">Link copied!</div>
 
-<script>
-// Top-level YT API ready handler — defined here so it works regardless of
-// whether the YT API script loads before or after $(document).ready. The
-// in-app code below replaces window.__ytReadyHandler once it's set up.
-window.__ytApiLoaded = false;
-window.onYouTubeIframeAPIReady = function(){
-  window.__ytApiLoaded = true;
-  if(typeof window.__ytReadyHandler === "function") window.__ytReadyHandler();
-};
-</script>
 <script src="/app.js"></script>
 </body>
 </html>

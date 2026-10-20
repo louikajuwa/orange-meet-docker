@@ -1,71 +1,75 @@
 # Orange Meet
 
-A lightweight WebRTC video-meeting app — a single Node.js (Express 5 + Socket.io) server that handles signaling and serves the static browser client from `public/`, all in one Docker container.
+A lightweight 1:1 WebRTC video-meeting app. A single Node.js server (Express 5 + Socket.IO 4) handles signaling and serves the static browser client from `public/`. It all runs in one Docker container.
+
+Features: password-protected room creation, host approval of join requests, kick, YouTube watch-together with synced playback, screen sharing, and automatic reconnect after a page refresh or network blip.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2 (`docker compose`).
-- Host port **4001** free.
-- A modern browser with WebRTC support (camera/mic permissions) to actually join a meeting.
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose v2.24+ (`docker compose`).
+- Host port **4001** must be free.
+- A modern browser with WebRTC support. Camera and microphone access require `localhost` or HTTPS.
 
-## Run
+## Run (development)
 
 ```bash
 docker compose up -d --build
 ```
 
-This builds the image from the local `Dockerfile` and starts the single service in the background.
+This builds the `dev` target of the `Dockerfile` and runs `nodemon server.js` with `NODE_ENV=development`. The `server.js`, `lib/`, `public/` and `test/` directories are bind-mounted read-only, and the server restarts on change. You only need to rebuild (`--build`) when dependencies change.
 
-The compose file overrides the image's default `CMD` (`node server.js`) with `nodemon server.js` and sets `NODE_ENV=development`, so `server.js` and `public/` are live-reloaded from the bind mounts — edit locally and the server restarts automatically, no rebuild needed. A rebuild (`--build`) is only required when `package.json`/dependencies change.
+Open http://localhost:4001 in two browser tabs to create a room and join it.
 
-## Services
+## Run (production)
 
-| Service | Image/Build | Purpose | Port (host:container) | URL |
-|---------|-------------|---------|-----------------------|-----|
-| `orange-meet` | Built from `.` (`node:20-alpine`), tagged `orange-meet:latest`; container name `orange-meet` | Express 5 + Socket.io signaling server that also serves the static WebRTC client from `/app/public` | `4001:4000` | http://localhost:4001 |
+```bash
+docker build --target prod -t orange-meet:prod .
+docker run -d -p 4000:4000 -e CREATE_PASSWORD='<strong password>' orange-meet:prod
+```
 
-`tini` runs as PID 1 inside the container for clean `SIGTERM` handling on `docker stop`. The container runs as the unprivileged `node` user.
+The production image contains production dependencies only, runs as the unprivileged `node` user with `tini` as PID 1, and has a built-in `HEALTHCHECK` on `/api/health`.
+
+Put it behind a TLS-terminating reverse proxy (for example Nginx) that forwards WebSocket upgrades. Browsers only allow camera and microphone access on HTTPS origins.
 
 ## Environment
 
-All values below are set in `docker-compose.yml` — no `.env` file is required.
+Copy `.env.example` to `.env` (git-ignored). Compose loads it automatically if it exists.
 
-| Variable | Default (compose) | Purpose |
-|----------|-------------------|---------|
-| `PORT` | `4000` | Port the server listens on inside the container. The host mapping is `4001:4000`; change the left side of the `ports` entry to publish on a different host port. |
-| `NODE_ENV` | `development` | Set to `development` in compose to run under `nodemon` with live-reload. (The image's own default is `production`.) |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CREATE_PASSWORD` | dev fallback outside production; **unset in production disables room creation** | Password needed to create a room. |
+| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated extra browser origins allowed to open Socket.IO connections. Same-origin is always allowed. |
+| `PORT` | `4000` | Port the server listens on inside the container. |
+| `NODE_ENV` | `development` (compose), `production` (prod image) | Development enables nodemon, livereload and verbose logs. |
 
-## Volumes & persistence
+## Limits and behaviour
 
-No named volumes. The app is stateless (in-memory signaling only). Two bind mounts are declared for live development:
+- A server holds at most 10 rooms, each with at most 2 participants.
+- Room names may be 1–40 letters, numbers, spaces, `.`, `_` or `-`.
+- A join request expires if the host does not answer within 60 seconds.
+- A disconnected participant keeps their slot for 15 seconds so a refresh can resume the call.
+- When the host leaves, the other participant becomes host.
+- Rate limits:
+  - Room creation: 10 per minute per IP.
+  - Join: 20 per minute per connection.
+  - Socket events: 400 per 10 seconds per connection.
+- All state is in memory, so a server restart ends every meeting. There is no database and nothing to back up.
 
-| Bind mount | Purpose |
-|------------|---------|
-| `./server.js:/app/server.js` | Live-reload the server code |
-| `./public:/app/public` | Live-reload the static WebRTC client |
+## Tests
+
+```bash
+docker compose build
+docker compose run --rm --no-deps -e NODE_ENV=test orange-meet npm test
+```
+
+The tests use the built-in `node:test` runner and `socket.io-client` against an in-process server on an ephemeral port.
 
 ## Common commands
 
 ```bash
-docker compose logs -f            # tail logs; expect "🚀 Orange Meet on :4000"
-docker compose ps                 # show status; wait for "Up (healthy)"
-docker compose stop               # stop the container (keeps it)
-docker compose down               # stop and remove the container
-docker compose up -d --build      # rebuild the image and restart
-docker compose exec orange-meet sh   # shell into the running container
+docker compose logs -f              # tail logs; expect "🚀 Orange Meet on :4000"
+docker compose ps                   # wait for "Up (healthy)"
+docker compose down                 # stop and remove the container
+docker compose exec orange-meet sh  # shell into the running container
+curl http://localhost:4001/api/health
 ```
-
-There is no database, so there are no migrations or seed steps.
-
-## Verify
-
-Confirm the stack is up:
-
-```bash
-curl -I http://localhost:4001    # -> HTTP 200
-docker compose ps                # STATUS shows "Up (healthy)"
-```
-
-A Docker healthcheck polls `http://localhost:4000/` inside the container every 30s (`wget`), so `docker compose ps` reports `(healthy)` once the server responds.
-
-Then open http://localhost:4001 in two browser tabs (or two devices) to start and join a meeting. There are no accounts or seeded credentials — meetings are open by URL.

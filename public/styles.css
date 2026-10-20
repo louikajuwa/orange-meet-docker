@@ -534,3 +534,33 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 ::-webkit-scrollbar-thumb{background:var(--dark-3);border-radius:3px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .pulse{animation:pulse 2s ease-in-out infinite}
+
+/* ===== Tailwind CDN replacement (preflight bits the app relied on + utilities) ===== */
+h1,h2,h3{font-weight:inherit}
+svg{display:block}
+video{max-width:100%}
+button,input{font-family:inherit}
+button{background-color:transparent}
+.rounded-lg{border-radius:.5rem}
+.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1)}
+#localWrap{border-radius:.5rem;box-shadow:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1)}
+
+/* ===== Accessibility ===== */
+:focus-visible{outline:2px solid var(--orange)!important;outline-offset:2px}
+input:focus-visible,.modal input:focus-visible,.sidebar-create input:focus-visible{outline:2px solid var(--orange)!important;outline-offset:1px}
+button:disabled{opacity:.55;cursor:not-allowed}
+.sidebar-create .modal-error{margin:6px 2px 0}
+.room-status{padding:20px;text-align:center;color:var(--gray-1);font-size:13px;display:flex;align-items:center;justify-content:center;gap:8px}
+.room-status .reconnect-spinner{border-color:rgba(255,255,255,.2);border-top-color:var(--orange)}
+.room-status.error{color:#f0a060}
+.modal-overlay{padding:16px}
+.modal{max-height:90vh;max-height:90dvh;overflow:auto}
+.kicked-overlay>div{max-width:100%}
+.toast-sub,.video-label,.room-name{overflow-wrap:anywhere}
+@media(max-width:480px){
+  .modal{padding:20px}
+  .kicked-overlay{padding:24px}
+  .lobby{padding:24px}
+}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+.video-kick-btn:focus-visible{opacity:1}
