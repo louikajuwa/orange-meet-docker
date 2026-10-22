@@ -5,8 +5,7 @@
 ### Security
 - Removed the `/api/proxy` endpoint. It was an open SSRF proxy that also served third-party HTML from the app's origin with CSP stripped. The client never used it.
 - The room-creation password now comes from the `CREATE_PASSWORD` env var instead of being hard-coded.
-  - In production, if it is unset, room creation is disabled.
-  - Outside production a built-in dev password is used.
+  - If it is unset, room creation is disabled in every environment. There is no built-in fallback password; set it in `.env` for local development.
   - Passwords are compared in constant time.
 - Every Socket.IO handler now validates its payload and is wrapped in try/catch. A malformed message or a room named `constructor` can no longer crash the server.
 - Signaling relays (`offer`, `answer`, `ice-candidate`, `ss-*`, `youtube-state-to`, targeted `toggle-*`) only reach members of the sender's room.

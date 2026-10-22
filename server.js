@@ -13,8 +13,6 @@ const RECONNECT_GRACE_MS = 15_000;
 const SESSION_TTL_MS = 60 * 60_000;
 const JOIN_REQUEST_TTL_MS = 60_000;
 const MAX_PAYLOAD_BYTES = 100_000; // SDP offers are a few KB; nothing legit is bigger
-// Used only outside production when CREATE_PASSWORD is not set.
-const DEV_CREATE_PASSWORD = "REMOVED";
 
 const sha256 = (s) => crypto.createHash("sha256").update(String(s)).digest();
 const passwordMatches = (given, expected) =>
@@ -55,7 +53,7 @@ function createServer(opts = {}) {
   const isProd = env.NODE_ENV === "production";
   const graceMs = opts.graceMs ?? RECONNECT_GRACE_MS;
   const joinRequestTtlMs = opts.joinRequestTtlMs ?? JOIN_REQUEST_TTL_MS;
-  const createPassword = env.CREATE_PASSWORD || (isProd ? null : DEV_CREATE_PASSWORD);
+  const createPassword = env.CREATE_PASSWORD || null;
   const allowedOrigins = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
   const verbose = !isProd && env.NODE_ENV !== "test";
   const log = (...a) => { if (verbose) console.log(...a); };

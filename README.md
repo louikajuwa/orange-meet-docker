@@ -37,7 +37,7 @@ Copy `.env.example` to `.env` (git-ignored). Compose loads it automatically if i
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CREATE_PASSWORD` | dev fallback outside production; **unset in production disables room creation** | Password needed to create a room. |
+| `CREATE_PASSWORD` | *(none)* — **required; if unset, room creation is disabled** | Password needed to create a room. |
 | `ALLOWED_ORIGINS` | *(empty)* | Comma-separated extra browser origins allowed to open Socket.IO connections. Same-origin is always allowed. |
 | `PORT` | `4000` | Port the server listens on inside the container. |
 | `NODE_ENV` | `development` (compose), `production` (prod image) | Development enables nodemon, livereload and verbose logs. |
