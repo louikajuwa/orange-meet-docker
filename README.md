@@ -73,3 +73,7 @@ docker compose down                 # stop and remove the container
 docker compose exec orange-meet sh  # shell into the running container
 curl http://localhost:4001/api/health
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

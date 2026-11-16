@@ -1144,7 +1144,6 @@ $(document).ready(function(){
     h.lastRestartAt = now;
     h.iceRestartAttempts++;
     try {
-      console.debug(`[reconnect] ICE restart for ${rid} (attempt ${h.iceRestartAttempts})`);
       const offer = await pc.createOffer({ iceRestart: true });
       await pc.setLocalDescription(offer);
       socket.emit("offer", { to: rid, sdp: offer });
@@ -1156,7 +1155,6 @@ $(document).ready(function(){
   }
 
   async function rebuildPeer(rid){
-    console.debug(`[reconnect] Full rebuild for ${rid}`);
     const old = pcs[rid];
     if(old){ try { old.close(); } catch(e){} }
     delete pcs[rid];
